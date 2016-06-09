@@ -1,0 +1,78 @@
+namespace SnakeGame;
+
+struct Point
+{
+	x: float;
+	y: float;
+}
+
+struct Food
+{
+	p: Point;
+	w: float;
+}
+
+struct Segment
+{
+	first: Point;
+	second: Point;
+}
+
+table Login
+{
+	login: string;
+	password: string;
+	field: int = 0;	
+}
+
+table Welcome
+{
+	player_id: int;
+	k10: float;
+}
+
+table Snake
+{
+	player_id: int;
+	snake_id: int = 0;
+	r: float;
+	skeleton: [Point];
+	head_visible: bool = false;
+}
+
+table Field
+{
+	snake_id: int;
+	w: float;
+	time: float;
+	snakes: [Snake];
+	foods: [Food];
+	borders: [Segment];
+}
+
+table Direction
+{
+	snake_id: int;
+	direction: Point;
+	boost: bool = false;
+	split: bool = false;
+}
+
+table Error
+{
+	description: string;
+}
+
+table Exit
+{
+	
+}
+
+union PackageType { Login, Welcome, Field, Direction, Error, Exit }
+
+table Package
+{
+	pkg: PackageType;
+}
+
+root_type Package;
