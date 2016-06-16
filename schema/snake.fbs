@@ -23,6 +23,7 @@ table Login
 	login: string;
 	password: string;
 	field: int = 0;	
+	level: int = 1;
 }
 
 table Welcome
@@ -38,6 +39,7 @@ table Snake
 	r: float;
 	skeleton: [Point];
 	head_visible: bool = false;
+	boost: bool = false;
 }
 
 table Field
