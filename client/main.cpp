@@ -28,12 +28,14 @@ class GameWidget : public QWidget
 		GameWidget();
 		void paintEvent(QPaintEvent *e) override;
 		void mousePressEvent(QMouseEvent *e) override;
+		void mouseReleaseEvent(QMouseEvent *e) override;
 		void mouseMoveEvent(QMouseEvent *e) override;
 		QByteArray fieldBuf;
 		QTransform trn;
 		int playerId;
 		int snakeId;
-		double w;
+		double w = 0;
+		bool boost = false;
 		QPointF currentMousePosition, currentHeadPosition;
 		QSize sizeHint() const override
 		{
@@ -209,8 +211,14 @@ void GameWidget::paintEvent(QPaintEvent *)
 	}
 }
 
-void GameWidget::mousePressEvent(QMouseEvent *e)
+void GameWidget::mousePressEvent(QMouseEvent*)
 {
+	boost = true;
+}
+
+void GameWidget::mouseReleaseEvent(QMouseEvent*)
+{
+	boost = false;
 }
 
 void GameWidget::mouseMoveEvent(QMouseEvent *e)
@@ -225,7 +233,7 @@ void GameForm::sendPos()
 	auto coord = gw->trn.inverted().map(gw->currentMousePosition);
 	flatbuffers::FlatBufferBuilder fbb;
 	auto point = Point(coord.x(), coord.y());
-	auto d = CreateDirection(fbb, gw->snakeId, &point);
+	auto d = CreateDirection(fbb, gw->snakeId, &point, gw->boost);
 	auto pkg = CreatePackage(fbb, PackageType_Direction, d.Union());
 	FinishPackageBuffer(fbb, pkg);
 	sendPackage(fbb);
