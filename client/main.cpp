@@ -14,6 +14,7 @@ class LoginForm : public QWidget
 	public:
 		LoginForm();
 		QLineEdit *server, *login, *password, *field;
+		QCheckBox *needNoSendPos;
 	public slots:
 		void start();
 };
@@ -32,13 +33,12 @@ class GameWidget : public QWidget
 		QTransform trn;
 		int playerId;
 		int snakeId;
-		QPointF currentMousePosition;
-		void sendPos();
+		double w;
+		QPointF currentMousePosition, currentHeadPosition;
 		QSize sizeHint() const override
 		{
 			return QSize(800, 800);
 		}
-		GameForm *gf;
 };
 
 class GameForm : public QWidget
@@ -50,6 +50,7 @@ class GameForm : public QWidget
 		QByteArray sizeBuf, bodyBuf;
 		GameWidget *gw;
 		void error(const QString& text);
+		bool needSendPos;
 
 	public slots:
 		void sockReadyRead();
@@ -61,6 +62,10 @@ class GameForm : public QWidget
 		void processMessage(const QByteArray& message);
 		void processWelcome(const Welcome* pkg);
 		void processError(const Error* pkg);
+		void sendPos();
+		void updateInfo();
+
+		QLabel *head, *direction, *w, *snakeid, *playerid;
 
 	friend class GameWidget;
 };
@@ -84,6 +89,8 @@ LoginForm::LoginForm()
 	l->addRow("Password", password);
 	field = new QLineEdit(settings.value("field").toString());
 	l->addRow("Field", field);
+	needNoSendPos = new QCheckBox("Don't send position");
+	l->addRow(needNoSendPos);
 	setLayout(l);
 	QPushButton *start = new QPushButton("Start");
 	l->addRow(start);
@@ -97,11 +104,17 @@ void LoginForm::start()
 	settings.setValue("login", login->text());
 	settings.setValue("password", password->text());
 	settings.setValue("field", field->text());
-	(new GameForm(server->text(), login->text(), password->text(), field->text()))->show();
+	auto x = new GameForm(server->text(), login->text(), password->text(), field->text());
+	if (needNoSendPos->isChecked())
+	{
+		x->needSendPos = false;
+	}
+	x->show();
 	deleteLater();
 }
 
-GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const QString& f)
+GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const QString& f):
+	needSendPos(true)
 {
 	sock = new QTcpSocket;
 	QObject::connect(sock, &QTcpSocket::readyRead, this, &GameForm::sockReadyRead);
@@ -125,11 +138,14 @@ GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const 
 
 	QHBoxLayout *l = new QHBoxLayout;
 	gw = new GameWidget;
-	gw->gf = this;
 	l->addWidget(gw);
-	QVBoxLayout *hl = new QVBoxLayout;
-	hl->addWidget(new QLabel("Hello"));
-	l->addLayout(hl);
+	QFormLayout *fl = new QFormLayout;
+	fl->addRow("Head", head = new QLabel);
+	fl->addRow("Direction", direction = new QLabel);
+	fl->addRow("W", w = new QLabel);
+	fl->addRow("Player", playerid = new QLabel);
+	fl->addRow("SnakeId", snakeid = new QLabel);
+	l->addLayout(fl);
 	setLayout(l);
 }
 
@@ -152,6 +168,7 @@ void GameWidget::paintEvent(QPaintEvent *)
 	painter.fillRect(0, 0, sizeHint().width(), sizeHint().height(), Qt::black);
 	auto field = static_cast<const Field*>(GetPackage(fieldBuf.data())->pkg());
 	snakeId = field->snake_id();
+	w = field->w();
 	/* Find head coord */
 	QPointF head;
 	for (auto i : *field->snakes())
@@ -160,10 +177,11 @@ void GameWidget::paintEvent(QPaintEvent *)
 		{
 			head.rx() = i->skeleton()->Get(0)->x();
 			head.ry() = i->skeleton()->Get(0)->y();
-			qDebug() << "found head" << head;
 			break;
 		}
 	}
+
+	currentHeadPosition = head;
 
 	trn = QTransform();
 	trn.translate(sizeHint().width() / 2, sizeHint().height() / 2);
@@ -177,7 +195,7 @@ void GameWidget::paintEvent(QPaintEvent *)
 	painter.setFont(foodFont);
 	for (auto i : *field->foods())
 	{
-		painter.drawText(QPointF(i->p().x(), i->p().y()), QString::number(i->w()));
+		painter.drawText(QPointF(i->p().x(), i->p().y()), QString::number(i->w(), 'f', 0));
 	}
 
 	painter.setPen(QColor(Qt::yellow));
@@ -201,37 +219,41 @@ void GameWidget::mouseMoveEvent(QMouseEvent *e)
 	QWidget::mouseMoveEvent(e);
 }
 
-void GameWidget::sendPos()
+void GameForm::sendPos()
 {
-	auto coord = trn.inverted().map(currentMousePosition);
-	qDebug() << "Sending direction" << coord;
+	if (!needSendPos) return;
+	auto coord = gw->trn.inverted().map(gw->currentMousePosition);
 	flatbuffers::FlatBufferBuilder fbb;
 	auto point = Point(coord.x(), coord.y());
-	auto d = CreateDirection(fbb, snakeId, &point);
+	auto d = CreateDirection(fbb, gw->snakeId, &point);
 	auto pkg = CreatePackage(fbb, PackageType_Direction, d.Union());
 	FinishPackageBuffer(fbb, pkg);
-	gf->sendPackage(fbb);
+	sendPackage(fbb);
+}
+
+void GameForm::updateInfo()
+{
+	head->setText(QString("(%1, %2)").arg(gw->currentHeadPosition.x()).arg(gw->currentHeadPosition.y()));
+	auto d = gw->trn.inverted().map(gw->currentMousePosition);
+	direction->setText(QString("(%1, %2)").arg(d.x()).arg(d.y()));
+	playerid->setText(QString::number(gw->playerId));
+	snakeid->setText(QString::number(gw->snakeId));
+	w->setText(QString::number(gw->w));
 }
 
 void GameForm::sockReadyRead()
 {
-//	qDebug() << "Ready to read";
 	if (sizeBuf.size() < 4)
 	{
-//		qDebug() << "Reading header";
 		sizeBuf.append(sock->read(4 - sizeBuf.size()));
 		bodyBuf.clear();
 	}
 	if (sizeBuf.size() == 4)
 	{
-//		qDebug() << "Reading body";
 		int len = qFromBigEndian<int32_t>(reinterpret_cast<const uchar*>(sizeBuf.data()));
-//		qDebug() << "len" << len;
 		bodyBuf.append(sock->read(len - bodyBuf.size()));
-//		qDebug() << "size" << bodyBuf.size();
 		if (bodyBuf.size() == len)
 		{
-//			qDebug() << "Processing body";
 			processMessage(bodyBuf);
 			bodyBuf.clear();
 			sizeBuf.clear();
@@ -253,7 +275,8 @@ void GameForm::processMessage(const QByteArray& message)
 		case PackageType_Field:
 			gw->fieldBuf = message;
 			gw->repaint();
-			gw->sendPos();
+			updateInfo();
+			sendPos();
 		break;
 		default:
 			error("Unknown package type arrived: " + QString::number(pkg->pkg_type()));
