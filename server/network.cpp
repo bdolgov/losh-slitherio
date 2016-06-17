@@ -252,7 +252,10 @@ void connection::do_send_welcome()
 
 connection::~connection()
 {
-	--player->connections;
+	if (player)
+	{
+		--player->connections;
+	}
 	dlog(info) << "Connection " << this << " destroyed";
 }
 

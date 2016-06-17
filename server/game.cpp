@@ -89,7 +89,7 @@ void game::tick()
 		{
 			d.split = false;
 			cur.w = prev.w - cfg.k_10;
-			snake_request s(s.p);
+			snake_request s(prev.p);
 			s.w = cfg.k_10;
 			for (ssize_t i = prev.skeleton.size() - 1; i >= 0; --i)
 			{
