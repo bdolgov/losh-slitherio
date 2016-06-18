@@ -30,12 +30,14 @@ class GameWidget : public QWidget
 		void mousePressEvent(QMouseEvent *e) override;
 		void mouseReleaseEvent(QMouseEvent *e) override;
 		void mouseMoveEvent(QMouseEvent *e) override;
+		void keyPressEvent(QKeyEvent *e) override;
 		QByteArray fieldBuf;
 		QTransform trn;
 		int playerId;
 		int snakeId;
 		double w = 0;
 		bool boost = false;
+		double ratio = 5;
 		QPointF currentMousePosition, currentHeadPosition;
 		QSize sizeHint() const override
 		{
@@ -149,6 +151,7 @@ GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const 
 	fl->addRow("SnakeId", snakeid = new QLabel);
 	l->addLayout(fl);
 	setLayout(l);
+	gw->setFocus();
 }
 
 void GameForm::sendPackage(const flatbuffers::FlatBufferBuilder& fbb)
@@ -187,7 +190,7 @@ void GameWidget::paintEvent(QPaintEvent *)
 
 	trn = QTransform();
 	trn.translate(sizeHint().width() / 2, sizeHint().height() / 2);
-	trn.scale(10, 10);
+	trn.scale(ratio, ratio);
 	trn.translate(-head.x(), -head.y());
 	painter.setTransform(trn);
 
@@ -225,6 +228,23 @@ void GameWidget::mouseMoveEvent(QMouseEvent *e)
 {
 	currentMousePosition = e->localPos();
 	QWidget::mouseMoveEvent(e);
+}
+
+void GameWidget::keyPressEvent(QKeyEvent *e)
+{
+	if (e->text() == "-")
+	{
+		--ratio;
+	}
+	else if (e->text() == "=")
+	{
+		++ratio;
+	}
+	else
+	{
+		QWidget::keyPressEvent(e);
+	}
+	qBound(1.0, ratio, 10.0);
 }
 
 void GameForm::sendPos()

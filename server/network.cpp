@@ -289,17 +289,23 @@ void connection::send_field(const std::shared_ptr<game_logic::field>& field)
 		for (auto &j : field->snakes)
 		{
 			std::vector<Point> skeleton;
+			bool first = true, first_in = false;
 			for (auto &k : j.skeleton)
 			{
 				if ((k - i.skeleton[0]).dist2() < game_logic::sqr(100 * i.r))
 				{
 					skeleton.emplace_back(k.x, k.y);
+					if (first)
+					{
+						first_in = true;
+					}
 				}
+				first = false;
 			}
 			if (!skeleton.empty())
 			{
 				snakes.emplace_back(
-					CreateSnake(fbb, j.p->get_id(), j.id, j.r, fbb.CreateVectorOfStructs(skeleton), true, false)
+					CreateSnake(fbb, j.p->get_id(), j.id, j.r, fbb.CreateVectorOfStructs(skeleton), first_in, j.boost)
 				);
 			}
 		}

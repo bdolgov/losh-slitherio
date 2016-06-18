@@ -128,11 +128,13 @@ void game::tick()
 		{
 			cur.speed = min(prev.speed + cfg.boost_acceleration_per_tick,
 				cfg.max_speed_multiplier * log(cur.w) + cfg.base_boost_speed);
+			cur.boost = true;
 		}
 		else
 		{
 			cur.speed = max(prev.speed - cfg.boost_acceleration_per_tick,
 				cfg.min_speed_multiplier * log(cur.w) + cfg.base_speed);
+			cur.boost = false;
 		}
 
 		/* Find head position */

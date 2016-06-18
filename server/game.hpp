@@ -57,6 +57,7 @@ namespace game_logic
 		float w;
 		float r;
 		float speed;
+		bool boost;
 		mem::dynarr<point> skeleton;
 	};
 
