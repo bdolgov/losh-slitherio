@@ -177,8 +177,10 @@ void game::tick()
 		int k;
 		if (i.skeleton.empty())
 		{
-			i.skeleton.emplace_back(0,0);
-			i.skeleton.emplace_back(0,1);
+			point h(cfg.food_coord_distribution(rng), cfg.food_coord_distribution(rng));
+			float angle = uniform_real_distribution<float>(0, M_PI * 2)(rng);
+			i.skeleton.emplace_back(h);
+			i.skeleton.emplace_back(h + point(0, 1). rot(angle));
 		}
 		for (k = 0; k < i.skeleton.size() && k < len; ++k)
 		{
@@ -217,7 +219,7 @@ void game::tick()
 		point head = i.skeleton[0];
 		for (auto &j : field->snakes)
 		{
-			if (&i == &j) continue;
+			if (&i == &j || j.w == 0) continue;
 			if ((head - j.skeleton[0]).dist2() <= sqr(i.r + j.r)
 				&& i.speed < j.speed)
 			{
