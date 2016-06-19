@@ -55,7 +55,7 @@ void game::tick()
 	auto old_field = get_current_field();
 	auto field = make_shared<game_logic::field>(old_field->arena.get_total());
 	field->time = old_field->time + 0.1;
-	dlog(debug) << "tick snakes=" << old_field->snakes.size();
+//	dlog(debug) << "tick snakes=" << old_field->snakes.size();
 	auto directions = get_directions();
 	vector<snake_request> create_snakes = get_create_snakes();
 
@@ -85,7 +85,7 @@ void game::tick()
 		cur.id = prev.id;
 		
 		direction &d = prev.p->directions[prev.id];
-		if (d.split)
+		if (d.split && prev.w > cfg.k_10)
 		{
 			d.split = false;
 			cur.w = prev.w - cfg.k_10;
@@ -227,6 +227,7 @@ void game::tick()
 			{
 				/* Head collision */
 				death(i);
+				dlog(debug) << "(head collision)";
 				break;
 
 			}

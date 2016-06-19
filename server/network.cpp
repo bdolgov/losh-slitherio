@@ -48,11 +48,12 @@ void connection::start()
 	dlog(info) << "Starting connection " << this;
 	do_read_header();
 	std::weak_ptr<connection> wp(shared_from_this());
-	timer.set_cb([this, wp]()
+	timer.set_cb([wp]()
 		{
-			if (!wp.expired())
+			auto sp = wp.lock();
+			if (sp && sp->game)
 			{
-				send_field(game->get_current_field());
+				sp->send_field(sp->game->get_current_field());
 			}
 		});
 }

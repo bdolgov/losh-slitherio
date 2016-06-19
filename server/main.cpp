@@ -26,15 +26,18 @@ int main(int ac, char** av)
 	cfg.base_speed = 0.8;
 	cfg.base_boost_speed = 1.6;
 	cfg.food_coord_distribution = std::normal_distribution<float>(0, 100);
-
-	auto f0 = std::make_shared<game_logic::game>(cfg);
-	server->add_game(0, f0);
 	auto users = std::make_shared<userdb::user_db>("users.txt");
-	server->set_users(users);
 
-	periodic_timer tick_timer(ios, boost::posix_time::milliseconds(75));
-	tick_timer.set_cb([f0](){f0->tick();});
-	tick_timer.start_many();
+	for (int i = 0; i <= 10; ++i)
+	{
+		auto f0 = std::make_shared<game_logic::game>(cfg);
+		server->add_game(i, f0);
+		server->set_users(users);
+	
+		periodic_timer *tick_timer = new periodic_timer(ios, boost::posix_time::milliseconds(75));
+		tick_timer->set_cb([f0](){f0->tick();});
+		tick_timer->start_many();
+	}
 	ios.run();
 	return 0;
 }
