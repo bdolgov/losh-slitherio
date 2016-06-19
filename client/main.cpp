@@ -38,6 +38,8 @@ class GameWidget : public QWidget
 		double w = 0;
 		bool boost = false;
 		double ratio = 5;
+		bool trackSnake = false;
+		int trackSnakeId = 0;
 		QPointF currentMousePosition, currentHeadPosition;
 		QSize sizeHint() const override
 		{
@@ -70,6 +72,7 @@ class GameForm : public QWidget
 		void updateInfo();
 
 		QLabel *head, *direction, *w, *snakeid, *playerid;
+		QLineEdit *trackSnakeId;
 
 	friend class GameWidget;
 };
@@ -149,9 +152,16 @@ GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const 
 	fl->addRow("W", w = new QLabel);
 	fl->addRow("Player", playerid = new QLabel);
 	fl->addRow("SnakeId", snakeid = new QLabel);
+	trackSnakeId = new QLineEdit;
+	fl->addRow("Track sn#", trackSnakeId);
+	QObject::connect(trackSnakeId, &QLineEdit::textChanged, [this](QString text)
+		{
+			gw->trackSnakeId = text.toInt(&gw->trackSnake);
+		});
 	l->addLayout(fl);
 	setLayout(l);
 	gw->setFocus();
+	setWindowState(Qt::WindowMaximized);
 }
 
 void GameForm::sendPackage(const flatbuffers::FlatBufferBuilder& fbb)
@@ -168,10 +178,11 @@ void GameWidget::paintEvent(QPaintEvent *)
 	{
 		return;
 	}
+	auto field = static_cast<const Field*>(GetPackage(fieldBuf.data())->pkg());
+	if (trackSnake && field->snake_id() != trackSnakeId) return;
 	QPainter painter(this);
 	painter.setRenderHints(QPainter::Antialiasing);
 	painter.fillRect(0, 0, sizeHint().width(), sizeHint().height(), Qt::black);
-	auto field = static_cast<const Field*>(GetPackage(fieldBuf.data())->pkg());
 	snakeId = field->snake_id();
 	w = field->w();
 	/* Find head coord */
