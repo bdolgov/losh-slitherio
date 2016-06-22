@@ -40,7 +40,10 @@ class GameWidget : public QWidget
 		double ratio = 5;
 		bool trackSnake = false;
 		int trackSnakeId = 0;
+		bool level10;
+		double foodAvg;
 		QPointF currentMousePosition, currentHeadPosition;
+		QPointF level10Head;
 		QSize sizeHint() const override
 		{
 			return QSize(800, 800);
@@ -53,6 +56,7 @@ class GameForm : public QWidget
 	public:
 		GameForm(const QString& s, const QString& l, const QString& p, const QString& f);
 		QTcpSocket *sock;
+		bool can = true;
 		QByteArray sizeBuf, bodyBuf;
 		GameWidget *gw;
 		void error(const QString& text);
@@ -62,6 +66,7 @@ class GameForm : public QWidget
 		void sockReadyRead();
 		void sockError();
 		void sockDisconnected();
+		void sockBytesWritten();
 
 	private:
 		void sendPackage(const flatbuffers::FlatBufferBuilder& fbb);
@@ -70,9 +75,11 @@ class GameForm : public QWidget
 		void processError(const Error* pkg);
 		void sendPos();
 		void updateInfo();
+		QFile gameBlob;
 
 		QLabel *head, *direction, *w, *snakeid, *playerid;
 		QLineEdit *trackSnakeId;
+		QTimer *replayTimer;
 
 	friend class GameWidget;
 };
@@ -121,28 +128,53 @@ void LoginForm::start()
 }
 
 GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const QString& f):
-	needSendPos(true)
+	needSendPos(true),
+	gameBlob("game.blob"),
+	replayTimer(nullptr)
 {
-	sock = new QTcpSocket;
-	QObject::connect(sock, &QTcpSocket::readyRead, this, &GameForm::sockReadyRead);
-	QObject::connect(sock, &QTcpSocket::connected, [this, _l, p, f]()
+	bool level10 = QCoreApplication::instance()->arguments().contains("--level10");
+	if (QCoreApplication::instance()->arguments().contains("--replay"))
+	{
+		replayTimer = new QTimer(this);
+		replayTimer->setSingleShot(false);
+		replayTimer->setInterval(100);
+		replayTimer->start();
+		gameBlob.open(QIODevice::ReadOnly);
+		QObject::connect(replayTimer, &QTimer::timeout, [this]()
+			{
+				QByteArray lenbuf = gameBlob.read(4);
+				int len = qFromBigEndian<int32_t>(reinterpret_cast<uchar*>(lenbuf.data()));
+				QByteArray message = gameBlob.read(len);
+				processMessage(message);
+			});
+	}
+	else
+	{
+		if (level10)
 		{
-			qDebug() << "Connected!";
-			flatbuffers::FlatBufferBuilder fbb;
-			auto login = fbb.CreateString(_l.toStdString());
-			auto password = fbb.CreateString(p.toStdString());
-			auto w = CreateLogin(fbb, login, password, f.toInt());
-			auto pkg = CreatePackage(fbb, PackageType_Login, w.Union());
-			FinishPackageBuffer(fbb, pkg);
-			sendPackage(fbb);
-		});
+			gameBlob.open(QIODevice::WriteOnly);
+		}
+		sock = new QTcpSocket;
+		QObject::connect(sock, &QTcpSocket::readyRead, this, &GameForm::sockReadyRead);
+		QObject::connect(sock, &QTcpSocket::connected, [this, _l, p, f, level10]()
+			{
+				qDebug() << "Connected!";
+				flatbuffers::FlatBufferBuilder fbb;
+				auto login = fbb.CreateString(_l.toStdString());
+				auto password = fbb.CreateString(p.toStdString());
+				auto w = CreateLogin(fbb, login, password, f.toInt(), level10 ? 10 : 1);
+				auto pkg = CreatePackage(fbb, PackageType_Login, w.Union());
+				FinishPackageBuffer(fbb, pkg);
+				sendPackage(fbb);
+			});
 
-	QObject::connect(sock, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(sockError()));
-	QObject::connect(sock, &QTcpSocket::disconnected, this, &GameForm::sockDisconnected);
+		QObject::connect(sock, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(sockError()));
+		QObject::connect(sock, &QTcpSocket::disconnected, this, &GameForm::sockDisconnected);
+		QObject::connect(sock, SIGNAL(bytesWritten(qint64)), this, SLOT(sockBytesWritten()));
 
-	QStringList hostParts = s.split(":");
-	sock->connectToHost(hostParts.value(0), hostParts.value(1).toInt());	
-
+		QStringList hostParts = s.split(":");
+		sock->connectToHost(hostParts.value(0), hostParts.value(1).toInt());	
+	}
 	QHBoxLayout *l = new QHBoxLayout;
 	gw = new GameWidget;
 	l->addWidget(gw);
@@ -160,12 +192,14 @@ GameForm::GameForm(const QString& s, const QString& _l, const QString& p, const 
 		});
 	l->addLayout(fl);
 	setLayout(l);
+	gw->level10 = level10;
 	gw->setFocus();
 	setWindowState(Qt::WindowMaximized);
 }
 
 void GameForm::sendPackage(const flatbuffers::FlatBufferBuilder& fbb)
 {
+	if (replayTimer) return;
 	char size[4];
 	qToBigEndian<int32_t>(fbb.GetSize(), reinterpret_cast<uchar*>(size));
 	sock->write(size, sizeof(size));
@@ -183,6 +217,7 @@ void GameWidget::paintEvent(QPaintEvent *)
 	QPainter painter(this);
 	painter.setRenderHints(QPainter::Antialiasing);
 	painter.fillRect(0, 0, sizeHint().width(), sizeHint().height(), Qt::black);
+	painter.setClipRect(0, 0, sizeHint().width(), sizeHint().height());
 	snakeId = field->snake_id();
 	w = field->w();
 	/* Find head coord */
@@ -196,7 +231,10 @@ void GameWidget::paintEvent(QPaintEvent *)
 			break;
 		}
 	}
-
+	if (level10)
+	{
+		head = level10Head;
+	}
 	currentHeadPosition = head;
 
 	trn = QTransform();
@@ -204,30 +242,46 @@ void GameWidget::paintEvent(QPaintEvent *)
 	trn.scale(ratio, ratio);
 	trn.translate(-head.x(), -head.y());
 	painter.setTransform(trn);
+	QRectF lim = trn.inverted().mapRect(QRectF(0, 0, sizeHint().width(), sizeHint().height()));
 
 	/* Draw food */
 	painter.setPen(QColor(Qt::yellow));
 	QFont foodFont; foodFont.setPointSize(1);
 	painter.setFont(foodFont);
+	double myFoodAvg = 0;
 	for (auto i : *field->foods())
 	{
-		painter.drawText(QPointF(i->p().x(), i->p().y()), QString::number(i->w(), 'f', 0));
+		if (i->w() > foodAvg / 2 && lim.contains(i->p().x(), i->p().y()))
+		{
+			painter.drawText(QPointF(i->p().x(), i->p().y()), QString::number(i->w(), 'f', 0));
+		}
+		myFoodAvg += i->w();
 	}
+	foodAvg /= myFoodAvg / field->foods()->size();
 
 	painter.setPen(QColor(Qt::yellow));
 	painter.setBrush(Qt::white);
 	for (auto i : *field->snakes())
 	{
-		for (auto j : *i->skeleton())
+		for (int _j = i->skeleton()->size() - 1; _j >= 0; --_j)
 		{
-			painter.drawEllipse(QPointF(j->x(), j->y()), i->r(), i->r());
+			auto j = i->skeleton()->Get(_j);
+			if (lim.contains(j->x(), j->y()))
+			{
+				painter.drawEllipse(QPointF(j->x(), j->y()), i->r(), i->r());
+			}
 		}
 	}
+
 }
 
 void GameWidget::mousePressEvent(QMouseEvent*)
 {
 	boost = true;
+	if (level10)
+	{
+		level10Head = trn.inverted().map(currentMousePosition);
+	}
 }
 
 void GameWidget::mouseReleaseEvent(QMouseEvent*)
@@ -300,8 +354,20 @@ void GameForm::sockReadyRead()
 	}
 }
 
+void GameForm::sockBytesWritten()
+{
+	can = true;
+}
+
 void GameForm::processMessage(const QByteArray& message)
 {
+	if (gw->level10 && !replayTimer)
+	{
+		char len[4];
+		qToBigEndian(static_cast<uint32_t>(message.size()), reinterpret_cast<uchar*>(len));
+		gameBlob.write(len, 4);
+		gameBlob.write(message);
+	}
 	auto pkg = GetPackage(message.data());
 	switch (pkg->pkg_type())
 	{
@@ -315,7 +381,11 @@ void GameForm::processMessage(const QByteArray& message)
 			gw->fieldBuf = message;
 			gw->repaint();
 			updateInfo();
-			sendPos();
+			if (can) 
+			{
+				can = false;
+				sendPos();
+			}
 		break;
 		default:
 			error("Unknown package type arrived: " + QString::number(pkg->pkg_type()));
