@@ -175,14 +175,14 @@ void connection::handle_body()
 void connection::handle_login(const Login* pkg)
 {
 	string login = pkg->login()->str(), password = pkg->password()->str();
-	int level = pkg->level();
+	int level_ = pkg->level();
 	if (player)
 	{
 		error("You have already logged in");
 		return;
 	}
 
-	if (!srv->get_users()->authen(login, password, level))
+	if (!srv->get_users()->authen(login, password, level_))
 	{
 		error("Wrong login, password or level");
 		return;
@@ -195,7 +195,7 @@ void connection::handle_login(const Login* pkg)
 		return;
 	}
 
-	player = game->get_player(login, level);
+	player = game->get_player(login, level_);
 	if (!player || player->connections > MAX_CONNECTIONS)
 	{
 		error("Cannot register the player for the game");
@@ -208,9 +208,11 @@ void connection::handle_login(const Login* pkg)
 
 	dlog(info) << this 
 		<< " logged in login=" << login 
-		<< " level=" << level 
+		<< " level=" << level_
 		<< " field=" << pkg->field()
 		<< " player=" << player.get();
+	
+	level = level_;
 
 	do_send_welcome();
 }
@@ -282,7 +284,7 @@ void connection::send_field(const std::shared_ptr<game_logic::field>& field)
 	{
 		flatbuffers::FlatBufferBuilder fbb;
 		std::vector<flatbuffers::Offset<Snake>> snakes;
-		if (i.p != player.get())
+		if (i.p != player.get() && level < 10)
 		{
 			continue;
 		}
@@ -293,7 +295,7 @@ void connection::send_field(const std::shared_ptr<game_logic::field>& field)
 			bool first = true, first_in = false;
 			for (auto &k : j.skeleton)
 			{
-				if ((k - i.skeleton[0]).dist2() < game_logic::sqr(100 * i.r))
+				if (level >= 10 || (k - i.skeleton[0]).dist2() < game_logic::sqr(100 * i.r))
 				{
 					skeleton.emplace_back(k.x, k.y);
 					if (first)
@@ -315,7 +317,7 @@ void connection::send_field(const std::shared_ptr<game_logic::field>& field)
 		std::vector<Food> foods;
 		for (auto &j : field->foods)
 		{
-			if ((j.p - i.skeleton[0]).dist2() < game_logic::sqr(100*i.r))
+			if (level >= 10 || (j.p - i.skeleton[0]).dist2() < game_logic::sqr(100*i.r))
 			{
 				foods.emplace_back(Food(Point(j.p.x, j.p.y), j.w));
 			}
@@ -324,6 +326,10 @@ void connection::send_field(const std::shared_ptr<game_logic::field>& field)
 		auto p = CreatePackage(fbb, PackageType_Field, f.Union());
 		FinishPackageBuffer(fbb, p);
 		send_package(fbb);
+		if (level >= 10)
+		{
+			break;
+		}
 	}
 	if (!pkg_queue)
 	{

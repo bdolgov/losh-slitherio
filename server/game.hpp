@@ -73,6 +73,7 @@ namespace game_logic
 		field(size_t arena_size);
 		mem::arena arena;
 		float time;
+		int tick;
 		mem::dynarr<snake> snakes;
 		mem::dynarr<food> foods;
 	};
@@ -90,24 +91,28 @@ namespace game_logic
 			int id;
 			int snake_id_seq;
 		public:
-			player(int _id);
+			player(int _id, int _level = 1);
 			int get_id() const;
 			int get_next_snake_id();
 			int connections = 0;
 			std::map<int, direction> directions;
 			int snakes = 0;
-			
+			float w_sum = 0;
+			float w_max = 0;
+			int level = 0;
 	};
 
 	struct configuration
 	{
 		float boost_acceleration_per_tick;
+		float boost_spend_per_8_ticks;
 		float max_direction_angle;
 		float snake_r_k1, snake_r_k2, snake_r_k3, snake_l_k4, snake_l_k5;
 		float default_w;
 		float k_10;
 		float max_speed_multiplier, min_speed_multiplier, base_speed, base_boost_speed;
 		std::normal_distribution<float> food_coord_distribution, food_w_distribution;
+		int tick_ms;
 	};
 
 	struct snake_request
@@ -124,10 +129,11 @@ namespace game_logic
 			game(const configuration& _cfg);
 			std::shared_ptr<field> get_current_field() const;
 			void set_direction(player *p, int snake_id, const direction& d);
-			void tick();
+			int tick();
 			void create_snake(const snake_request& r);
 			std::shared_ptr<player> get_player(const std::string& login, int level = 1);
 			const configuration& get_configuration() const;
+			bool game_started;
 
 		private:
 			std::map<std::string, std::shared_ptr<player>> players;
@@ -150,7 +156,6 @@ namespace game_logic
 			float snake_r(const snake& s) const;
 			int snake_len(const snake& s) const;
 
-			bool game_started;
 			std::mt19937_64 rng;
 	};
 }

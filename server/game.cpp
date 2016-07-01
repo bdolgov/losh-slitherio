@@ -6,6 +6,40 @@
 using namespace game_logic;
 using namespace std;
 
+template<int S, int E>
+struct cool_matrix_list
+{
+	struct elem
+	{
+		int size = 0;
+		int a[E];
+		void push_back(int x)
+		{
+			if (size < E)
+			{
+				a[size++] = x;
+			}
+		}
+		int& operator[](int idx)
+		{
+			return a[idx];
+		}
+		int* begin() { return a; }
+		int* end() { return a + size; }
+	};
+	elem a[2 * S + 1][2 * S + 1];
+	elem zero;
+	enum { Min = -S, Max = S };
+	elem& operator()(int i, int j)
+	{
+		if (i < -S || i > S || j < -S || j > S)
+		{
+			return zero;
+		}
+		return a[i + S][j + S];
+	}
+};
+
 std::shared_ptr<field> game::get_current_field() const
 {
 	lock_guard<mutex> l(field_mutex);
@@ -50,11 +84,13 @@ void game::create_snake(const snake_request& r)
 	create_snakes_queue.push_back(r);
 }
 
-void game::tick()
+int game::tick()
 {
+	if (!game_started) return -1;
 	auto old_field = get_current_field();
 	auto field = make_shared<game_logic::field>(old_field->arena.get_total());
-	field->time = old_field->time + 0.1;
+	field->time = old_field->time + cfg.tick_ms / 1000.0f;
+	field->tick = old_field->tick + 1;
 //	dlog(debug) << "tick snakes=" << old_field->snakes.size();
 	auto directions = get_directions();
 	vector<snake_request> create_snakes = get_create_snakes();
@@ -172,6 +208,8 @@ void game::tick()
 		cur.p = i.p;
 		cur.id = cur.p->get_next_snake_id();
 		cur.w = i.w ? i.w : cfg.default_w;
+		if (cur.p->get_id() == 0)
+			cur.w = 100;
 		cur.r = snake_r(cur);
 		cur.speed = cfg.min_speed_multiplier * log(cur.w) + cfg.base_speed;
 		int len = snake_len(cur);
@@ -215,9 +253,10 @@ void game::tick()
 			s.w = 0;
 		};
 
-	/* Check snake collisions */
+	/* Process snakes */
 	for (auto &i : field->snakes)
 	{
+		/* Check snake collisions */
 		point head = i.skeleton[0];
 		for (auto &j : field->snakes)
 		{
@@ -245,6 +284,27 @@ void game::tick()
 				break;
 			}
 		}
+
+		for (auto &j : i.skeleton)
+		{
+			if (isnan(j.x) || isnan(j.y))
+			{
+				dlog(warning) << "nan collision!";
+				death(i);
+			}
+		}
+		
+		/* Calculate scores */
+		i.p->w_sum += i.w;
+		i.p->w_max = max(i.p->w_max, i.w);
+
+		/* Spend boost */
+		if ((field->tick & 7) == 0 && i.boost && i.skeleton.size())
+		{
+			float cur_w = cfg.boost_spend_per_8_ticks * i.w;
+			i.w -= cur_w;
+			new_foods.emplace_back(i.skeleton[i.skeleton.size() - 1], cur_w);
+		}
 	}
 
 	/* FIXME: spread food with boost */
@@ -260,8 +320,14 @@ void game::tick()
 	/* Copy food to the new field and feed the snakes */
 	field->foods.alloc(field->arena, old_field->foods.size() + new_foods.size());
 	int foods_n = 0;
-	for (auto &i : old_field->foods)
+
+	for (size_t idx = 0; idx < old_field->foods.size(); ++idx)
 	{
+		auto &i = old_field->foods[idx];
+		if (i.w == 0)
+		{
+			continue;
+		}
 		bool eaten = false;
 		for (auto &j : field->snakes)
 		{
@@ -278,18 +344,56 @@ void game::tick()
 				break;
 			}
 		}
+		double cur_w = i.w;
 		if (!eaten)
 		{
-			field->foods[foods_n++] = i;
+			field->foods[foods_n++] = food(i.p, cur_w);
 		}
 	}
 	for (auto &i : new_foods)
 	{
 		field->foods[foods_n++] = i;
 	}
+
+	if ((field->tick & 63) == 0)
+	{
+		cool_matrix_list<200, 5> v;
+		for (size_t idx = 0; idx < foods_n; ++idx)
+		{
+			auto &i = field->foods[idx];
+			v(i.p.x / 2, i.p.y / 2).push_back(idx);
+		}
+		for (int i = v.Min; i <= v.Max; ++i)
+		{
+			for (int j = v.Min; j <= v.Max; ++j)
+			{
+				auto &e = v(i, j);
+				for (int k = 1; k < e.size; ++k)
+				{
+					field->foods[e[0]].w += field->foods[e[k]].w;
+					field->foods[e[k]].w = 0;
+				}
+			}
+		}
+		for (size_t idx = 0; idx < foods_n;)
+		{
+			if (field->foods[idx].w == 0)
+			{
+				--foods_n;
+				std::swap(field->foods[foods_n], field->foods[idx]);
+			}
+			else
+			{
+				++idx;
+			}
+		}
+	}
+	
 	field->foods.realloc(field->arena, foods_n);
 
 	set_current_field(field);
+
+	return field->tick;
 }
 
 food::food(point _p, float _w):
@@ -307,11 +411,23 @@ std::shared_ptr<player> game::get_player(const string& login, int level)
 	auto it = players.find(login);
 	if (it == players.end())
 	{
-		it = players.emplace(login, make_shared<player>(player_id_seq++)).first;
-		if (game_started)
+		it = players.emplace(login, make_shared<player>(player_id_seq++, level)).first;
+		dlog(info) << "GAME " << login << " " << it->second->get_id();
+		if (game_started && level == 1)
 		{
 			/* Add first snake */
 			create_snake(snake_request(it->second.get()));
+		}
+		else if (level == 10 && !game_started)
+		{
+			for (auto &j : players)
+			{
+				if (j.second->level == 1)
+				{
+					create_snake(snake_request(j.second.get()));
+				}
+			}
+			game_started = true;
 		}
 	}
 	return it->second;
@@ -328,9 +444,10 @@ void game::set_direction(player *p, int snake_id, const direction& d)
 	directions_queue.emplace_back(p, snake_id, d);
 }
 
-player::player(int _id):
+player::player(int _id, int _level):
 	id(_id),
-	snake_id_seq(0)
+	snake_id_seq(0),
+	level(_level)
 {
 }
 
@@ -348,7 +465,8 @@ game::game(const configuration& _cfg):
 	current_field(make_shared<field>(16384)),
 	cfg(_cfg),
 	player_id_seq(0),
-	game_started(true)
+	game_started(false)
 {
 	current_field->time = 0;
+	current_field->tick = 0;
 }

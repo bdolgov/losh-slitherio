@@ -43,6 +43,7 @@ namespace network
 			std::shared_ptr<game_logic::player> player;
 			periodic_timer timer;
 			int pkg_queue;
+			int level = 0;
 
 			void do_read_header();
 			void do_read_body();

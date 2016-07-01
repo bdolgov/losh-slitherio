@@ -206,6 +206,8 @@ void GameForm::sendPackage(const flatbuffers::FlatBufferBuilder& fbb)
 	sock->write(reinterpret_cast<const char*>(fbb.GetBufferPointer()), fbb.GetSize());
 }
 
+QColor colors[] = { Qt::white, Qt::white, Qt::cyan, Qt::blue, Qt::magenta, Qt::red, Qt::green, "pink", "brown", Qt::gray, Qt::darkYellow, Qt::darkMagenta, Qt::darkBlue, Qt::darkRed, Qt::darkCyan, qRgb(172, 179, 0), Qt::yellow, qRgb(200, 17, 150), qRgb(37, 220, 210) };
+
 void GameWidget::paintEvent(QPaintEvent *)
 {
 	if (fieldBuf.isEmpty())
@@ -259,10 +261,10 @@ void GameWidget::paintEvent(QPaintEvent *)
 	}
 	foodAvg /= myFoodAvg / field->foods()->size();
 
-	painter.setPen(QColor(Qt::yellow));
-	painter.setBrush(Qt::white);
 	for (auto i : *field->snakes())
 	{
+		painter.setPen(QColor(colors[i->player_id() < sizeof(colors) / sizeof(colors[0]) ? i->player_id() : 0]));
+		painter.setBrush(Qt::white);
 		for (int _j = i->skeleton()->size() - 1; _j >= 0; --_j)
 		{
 			auto j = i->skeleton()->Get(_j);
